@@ -1,9 +1,24 @@
 defmodule Numberphile.TCSR do
+  @moduledoc """
+  Taneja's Crazy Sequential Representation
+
+  Read Taneja's paper for more details:
+
+  - https://arxiv.org/abs/1302.1479
+
+  Inspired by the videos:
+
+  - https://www.youtube.com/watch?v=-ruC5A9EzzE
+  - https://www.youtube.com/watch?v=pasyRUj7UwM
+  """
+
+  alias Numberphile.TCSR
+
   @funcs [
-    |: &Numberphile.concatenate/2,
-    ^: &Numberphile.pow/2,
+    |: &TCSR.concatenate/2,
+    ^: &TCSR.pow/2,
     *: &Kernel.*/2,
-    /: &Numberphile.divide/2,
+    /: &TCSR.divide/2,
     +: &Kernel.+/2,
     -: &Kernel.-/2
   ]
@@ -13,11 +28,17 @@ defmodule Numberphile.TCSR do
   @func_list_length length(@digits) - 1
   @max_guess @func_length |> :math.pow(@func_list_length) |> round() |> Kernel.-(1)
 
+  def stream(start) do
+    start
+    |> Stream.iterate(&(&1 + 1))
+    |> Stream.map(&find/1)
+  end
+
   def find(%Range{} = range) do
     count = Enum.count(range)
 
-    range
-    |> Stream.map(&find/1)
+    range.first
+    |> stream()
     |> Stream.with_index()
     |> Stream.map(fn {value, index} ->
       ProgressBar.render(index + 1, count)
@@ -26,16 +47,22 @@ defmodule Numberphile.TCSR do
     |> Enum.to_list()
   end
 
-  def find(number) do
-    find(number, solve(@max_guess), @max_guess)
+  def find(number, offset \\ 0) do
+    (@max_guess - offset)
+    |> Stream.iterate(&(&1 - 1))
+    |> Stream.take_while(&(&1 >= 0))
+    |> Stream.map(fn(guess) ->
+      ProgressBar.render(@max_guess - guess, @max_guess, suffix: :count, width: 80)
+      guess
+    end)
+    |> Stream.map(&guess_to_func_list/1)
+    |> Stream.map(&build_full_list(&1, @digits))
+    |> Stream.flat_map(&all_possible_groups/1)
+    |> Enum.find(&matches?(&1, number))
   end
 
-  defp find(_, _, -1), do: {:error, :not_found}
-
-  defp find(number, {:ok, number}, guess), do: {:ok, guess_to_func_list(guess)}
-
-  defp find(number, _wrong_guess, guess) do
-    find(number, solve(guess - 1), guess - 1)
+  def matches?(expresssion, number) when is_list(expresssion) do
+    solve(expresssion) == {:ok, number}
   end
 
   def guess_to_func_list(guess) do
@@ -45,25 +72,29 @@ defmodule Numberphile.TCSR do
     |> Enum.map(&Enum.at(@precedence, &1))
   end
 
-  def solve(guess) when is_integer(guess) do
-    guess
-    |> guess_to_func_list()
-    |> solve()
-  end
-
-  def solve(func_list) when is_list(func_list) and length(func_list) == @func_list_length do
+  def solve(expression) when is_list(expression) do
     try do
-      func_list
-      |> build_full_list()
-      |> solve(@precedence, [])
+      if valid_expression?(expression) do
+        solve(expression, @precedence, [])
+      else
+        {:error, :invalid_expression}
+      end
     rescue
       ArithmeticError -> {:error, :number_too_big}
     end
   end
 
-  def solve(_), do: {:error, :bad_func_list}
+  defp valid_expression?([_]), do: true
+  defp valid_expression?([l, :|, r | _]) when is_list(l) or is_list(r), do: false
+  defp valid_expression?([_, _ | t]), do: valid_expression?(t)
 
   defp solve([result], [], []), do: {:ok, result}
+
+  defp solve([expr | tail], precedence, rest) when is_list(expr) do
+    with {:ok, result} <- solve(expr) do
+      solve([result | tail], precedence, rest)
+    end
+  end
 
   defp solve([last], precedence, rest) do
     solve([], precedence, [last | rest])
@@ -97,11 +128,11 @@ defmodule Numberphile.TCSR do
 
   def concatenate(left, right), do: String.to_integer("#{left}#{right}")
 
-  def build_full_list(funcs), do: merge_lists(@digits, funcs, [])
+  def build_full_list(funcs, digits), do: merge_lists(funcs, digits, [])
 
   defp merge_lists([], [], acc), do: Enum.reverse(acc)
-  defp merge_lists([dh | dt], [fh | ft], acc), do: merge_lists(dt, ft, [fh, dh | acc])
-  defp merge_lists([dh | dt], [], acc), do: merge_lists(dt, [], [dh | acc])
+  defp merge_lists([fh | ft], [dh | dt], acc), do: merge_lists(ft, dt, [fh, dh | acc])
+  defp merge_lists([], [dh | dt], acc), do: merge_lists([], dt, [dh | acc])
 
   def pow(left, right), do: left |> :math.pow(right) |> round()
 
@@ -114,4 +145,42 @@ defmodule Numberphile.TCSR do
       result
     end
   end
+
+  def all_possible_groups(expr) do
+    count = Enum.count(expr)
+
+    result =
+      3
+      |> Stream.iterate(&(&1 + 2))
+      |> Stream.take_while(&(&1 <= count - 2))
+      |> Enum.flat_map(&possible_groups(expr, &1))
+
+    [expr | result]
+  end
+
+  def possible_groups(expr, size) do
+    count = Enum.count(expr)
+
+    0
+    |> Stream.iterate(&(&1 + 2))
+    |> Stream.take_while(&(&1 <= count - size))
+    |> Stream.map(&group(expr, &1, size))
+    |> Enum.filter(&valid_expression?/1)
+  end
+
+  def group(digits, start, size) when is_list(digits) do
+    group(digits, start, size, [], [])
+  end
+
+  def group(digits, start, size) do
+    digits
+    |> Enum.to_list()
+    |> group(start, size)
+  end
+
+  def group([], 0, 0, nil, acc), do: Enum.reverse(acc)
+  def group([h | t], 0, 0, nil, acc), do: group(t, 0, 0, nil, [h | acc])
+  def group(digits, 0, 0, inside, acc), do: group(digits, 0, 0, nil, [Enum.reverse(inside) | acc])
+  def group([h | t], 0, s, inside, acc), do: group(t, 0, s - 1, [h | inside], acc)
+  def group([h | t], f, s, inside, acc), do: group(t, f - 1, s, inside, [h | acc])
 end

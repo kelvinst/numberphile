@@ -1,8 +1,9 @@
 # Numberphile
 
-Taneja's Crazy Sequential Representation
+This repo has a lot of math exercises and problems tried out in Elixir
+inspired by the
+[Numberphile channel on Youtube](https://www.youtube.com/channel/UCoxcjq-8xIDTYp3uz647V5A).
 
-Read Taneja's paper for more details: https://arxiv.org/abs/1302.1479
 
 ## Installation
 
