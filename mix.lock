@@ -1,0 +1,4 @@
+%{
+  "progress_bar": {:hex, :progress_bar, "1.6.1", "4a82aa4f2b04708dca7472febf5e73477f0e09c81fec98fc502c8d5e3d833172", [:mix], [], "hexpm"},
+  "rename": {:hex, :rename, "0.1.0", "dc9727684c1000453b94aa7647abf6a715eb24c84a870a23751cf013f462655c", [:mix], [], "hexpm"},
+}
